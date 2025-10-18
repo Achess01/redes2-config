@@ -1,81 +1,76 @@
 #!/bin/bash
-# ===========================================================
-# Configuración persistente de red - FIREWALL
-# VLANs hacia ISPs y VLANs hacia Load Balancer
-# ===========================================================
 
-cat <<'EOF' | sudo tee /etc/network/interfaces > /dev/null
-# ===========================================================
-# Archivo generado automáticamente - FIREWALL
-# ===========================================================
+# Interfaces
+WAN_IF="enp1s0"         # Interface connected to ISP simulator
+LAN_IF="enx00e04c3603ba" # Interface connected to Load Balancer
+BRIDGE_IF="br0"
 
-# Loopback
-auto lo
-iface lo inet loopback
+# Function to set up the transparent bridge
+setup_bridge() {
+  echo "[+] Creating bridge ${BRIDGE_IF}..."
 
-# Interfaz hacia los ISPs (Ubuntu)
-auto enp1s0
-iface enp1s0 inet manual
+  # Create the bridge interface
+  ip link add name $BRIDGE_IF type bridge
 
-# Interfaz hacia el Load Balancer
-auto enx00e04c3603ba
-iface enx00e04c3603ba inet manual
+  # Clear any existing IPs from physical interfaces
+  ip addr flush dev $WAN_IF
+  ip addr flush dev $LAN_IF
 
-# ===============================
-# VLANs WAN hacia los ISPs
-# ===============================
+  # Add physical interfaces to the bridge
+  ip link set dev $WAN_IF master $BRIDGE_IF
+  ip link set dev $LAN_IF master $BRIDGE_IF
 
-# VLAN 70 - ISP1
-auto enp1s0.70
-iface enp1s0.70 inet static
-    address 192.168.70.2
-    netmask 255.255.255.0
-    gateway 192.168.70.1
-    vlan-raw-device enp1s0
+  # Bring up all interfaces
+  ip link set dev $WAN_IF up
+  ip link set dev $LAN_IF up
+  ip link set dev $BRIDGE_IF up
 
-# VLAN 80 - ISP2
-auto enp1s0.80
-iface enp1s0.80 inet static
-    address 192.168.80.2
-    netmask 255.255.255.0
-    gateway 192.168.80.1
-    vlan-raw-device enp1s0
+  echo "[+] Enabling kernel settings for bridged traffic filtering..."
+  # This allows iptables to see traffic that flows across the bridge
+  sysctl -w net.bridge.bridge-nf-call-iptables=1
+  sysctl -w net.ipv4.ip_forward=1 # Still needed for filtering rules
+}
 
-# ===============================
-# VLANs LAN hacia el Load Balancer
-# ===============================
+# Function to apply firewall rules
+apply_rules() {
+  echo "[+] Applying firewall rules..."
 
-# VLAN 10 - hacia Load Balancer (ISP1 interno)
-auto enx00e04c3603ba.10
-iface enx00e04c3603ba.10 inet static
-    address 10.10.10.1
-    netmask 255.255.255.0
-    vlan-raw-device enx00e04c3603ba
-    post-up ip rule add from 10.10.10.0/24 table isp1
-    post-up ip route add default via 192.168.70.1 dev enp1s0.70 table isp1
-    pre-down ip rule del from 10.10.10.0/24 table isp1
-    pre-down ip route flush table isp1
+  # Flush existing rules
+  iptables -F FORWARD
 
-# VLAN 20 - hacia Load Balancer (ISP2 interno)
-auto enx00e04c3603ba.20
-iface enx00e04c3603ba.20 inet static
-    address 10.10.20.1
-    netmask 255.255.255.0
-    vlan-raw-device enx00e04c3603ba
-    post-up ip rule add from 10.10.20.0/24 table isp2
-    post-up ip route add default via 192.168.80.1 dev enp1s0.80 table isp2
-    pre-down ip rule del from 10.10.20.0/24 table isp2
-    pre-down ip route flush table isp2
+  # Set default policy to DROP (secure default)
+  iptables -P FORWARD DROP
 
-# Habilitar reenvío de paquetes IPv4
-post-up sysctl -w net.ipv4.ip_forward=1
+  # --- YOUR INGRESS/EGRESS RULES GO HERE ---
+  # Example: Allow all traffic to pass for now for testing
+  # In production, you would add specific rules per the project PDF [cite: 116]
+  iptables -A FORWARD -i $WAN_IF -o $LAN_IF -j ACCEPT
+  iptables -A FORWARD -i $LAN_IF -o $WAN_IF -j ACCEPT
+  
+  echo "[+] Rules applied. Firewall is active."
+}
 
-# Reglas NAT para salida a Internet
-post-up iptables -t nat -A POSTROUTING -s 10.10.10.0/24 -o enp1s0.70 -j MASQUERADE
-post-up iptables -t nat -A POSTROUTING -s 10.10.20.0/24 -o enp1s0.80 -j MASQUERADE
-pre-down iptables -t nat -D POSTROUTING -s 10.10.10.0/24 -o enp1s0.70 -j MASQUERADE
-pre-down iptables -t nat -D POSTROUTING -s 10.10.20.0/24 -o enp1s0.80 -j MASQUERADE
-EOF
+# Function to clean up the configuration
+cleanup() {
+  echo "[+] Cleaning up bridge configuration..."
+  
+  ip link set dev $BRIDGE_IF down
+  ip link del dev $BRIDGE_IF
 
-echo "[+] Configuración del FIREWALL escrita en /etc/network/interfaces"
-echo "[+] Reinicia el servicio de red con: sudo systemctl restart networking"
+  # Restore interfaces if needed (or just reboot)
+  echo "[+] Cleanup complete."
+}
+
+# ====== MENU ======
+case "$1" in
+  start)
+    setup_bridge
+    apply_rules
+    ;;
+  stop)
+    cleanup
+    ;;
+  *)
+    echo "Uso: $0 {start|stop}"
+    ;;
+esac
