@@ -1,126 +1,71 @@
 #!/bin/bash
 
-WAN_IF="enp1s0"                 # interfaz física hacia Ubuntu (ISPs)
-LAN_IF="enx00e04c3603ba"        # interfaz física hacia balanceador
+# Interfaces
+WAN_IF="enp1s0"         # Interface connected to ISP simulator
+LAN_IF="enx00e04c3603ba" # Interface connected to Load Balancer
+BRIDGE_IF="br0"
 
-# VLANs hacia Ubuntu (ISPs simulados)
-VLAN_ISP1_ID=70
-VLAN_ISP2_ID=80
-ISP1_NET="192.168.70.0/24"
-ISP2_NET="192.168.80.0/24"
-ISP1_IP="192.168.70.2/24"
-ISP2_IP="192.168.80.2/24"
-ISP1_GW="192.168.70.1"
-ISP2_GW="192.168.80.1"
+# Function to set up the transparent bridge
+setup_bridge() {
+  echo "[+] Creating bridge ${BRIDGE_IF}..."
 
-# VLANs hacia el balanceador (usaremos nombres cortos)
-VLAN_LAN1_ID=10
-VLAN_LAN2_ID=20
-LAN1_NET="10.10.10.0/24"
-LAN2_NET="10.10.20.0/24"
-LAN1_IP="10.10.10.1/24"
-LAN2_IP="10.10.20.1/24"
-LAN1_NAME="lan10"
-LAN2_NAME="lan20"
+  # Create the bridge interface
+  ip link add name $BRIDGE_IF type bridge
 
-# ====== FUNCIONES ======
+  # Clear any existing IPs from physical interfaces
+  ip addr flush dev $WAN_IF
+  ip addr flush dev $LAN_IF
 
-create_vlans() {
-  echo "[+] Creando VLANs..."
+  # Add physical interfaces to the bridge
+  ip link set dev $WAN_IF master $BRIDGE_IF
+  ip link set dev $LAN_IF master $BRIDGE_IF
 
-  # VLANs WAN (enp1s0 → Ubuntu)
-  ip link add link $WAN_IF name ${WAN_IF}.${VLAN_ISP1_ID} type vlan id $VLAN_ISP1_ID
-  ip link add link $WAN_IF name ${WAN_IF}.${VLAN_ISP2_ID} type vlan id $VLAN_ISP2_ID
+  # Bring up all interfaces
+  ip link set dev $WAN_IF up
+  ip link set dev $LAN_IF up
+  ip link set dev $BRIDGE_IF up
 
-  ip addr add $ISP1_IP dev ${WAN_IF}.${VLAN_ISP1_ID}
-  ip addr add $ISP2_IP dev ${WAN_IF}.${VLAN_ISP2_ID}
-
-  ip link set ${WAN_IF}.${VLAN_ISP1_ID} up
-  ip link set ${WAN_IF}.${VLAN_ISP2_ID} up
-
-  # VLANs LAN (usando nombres cortos)
-  ip link add link $LAN_IF name $LAN1_NAME type vlan id $VLAN_LAN1_ID
-  ip link add link $LAN_IF name $LAN2_NAME type vlan id $VLAN_LAN2_ID
-
-  ip addr add $LAN1_IP dev $LAN1_NAME
-  ip addr add $LAN2_IP dev $LAN2_NAME
-
-  ip link set $LAN1_NAME up
-  ip link set $LAN2_NAME up
+  echo "[+] Enabling kernel settings for bridged traffic filtering..."
+  # This allows iptables to see traffic that flows across the bridge
+  sysctl -w net.bridge.bridge-nf-call-iptables=1
+  sysctl -w net.ipv4.ip_forward=1 # Still needed for filtering rules
 }
 
-enable_forwarding() {
-  echo "[+] Habilitando reenvío de paquetes..."
-  sysctl -w net.ipv4.ip_forward=1
-}
+# Function to apply firewall rules
+apply_rules() {
+  echo "[+] Applying firewall rules..."
 
-setup_nat() {
-  echo "[+] Configurando reglas NAT..."
-
-  # Limpiar reglas previas
-  iptables -t nat -F
+  # Flush existing rules
   iptables -F FORWARD
 
-  # Permitir reenvío
-  iptables -P FORWARD ACCEPT
+  # Set default policy to DROP (secure default)
+  iptables -P FORWARD DROP
 
-  # NAT: tráfico LAN → WAN
-  iptables -t nat -A POSTROUTING -s $LAN1_NET -o ${WAN_IF}.${VLAN_ISP1_ID} -j MASQUERADE
-  iptables -t nat -A POSTROUTING -s $LAN1_NET -o ${WAN_IF}.${VLAN_ISP2_ID} -j MASQUERADE
-  iptables -t nat -A POSTROUTING -s $LAN2_NET -o ${WAN_IF}.${VLAN_ISP1_ID} -j MASQUERADE
-  iptables -t nat -A POSTROUTING -s $LAN2_NET -o ${WAN_IF}.${VLAN_ISP2_ID} -j MASQUERADE
+  # --- YOUR INGRESS/EGRESS RULES GO HERE ---
+  # Example: Allow all traffic to pass for now for testing
+  # In production, you would add specific rules per the project PDF [cite: 116]
+  iptables -A FORWARD -i $WAN_IF -o $LAN_IF -j ACCEPT
+  iptables -A FORWARD -i $LAN_IF -o $WAN_IF -j ACCEPT
+  
+  echo "[+] Rules applied. Firewall is active."
 }
 
-setup_routes() {
-  echo "[+] Configurando rutas y tablas..."
-
-  # Evitar duplicados en /etc/iproute2/rt_tables
-  grep -q "100 isp1" /etc/iproute2/rt_tables || echo "100 isp1" >> /etc/iproute2/rt_tables
-  grep -q "200 isp2" /etc/iproute2/rt_tables || echo "200 isp2" >> /etc/iproute2/rt_tables
-
-  # Rutas por tabla
-  ip route add $ISP1_NET dev ${WAN_IF}.${VLAN_ISP1_ID} src ${ISP1_IP%/*} table isp1
-  ip route add default via $ISP1_GW dev ${WAN_IF}.${VLAN_ISP1_ID} table isp1
-
-  ip route add $ISP2_NET dev ${WAN_IF}.${VLAN_ISP2_ID} src ${ISP2_IP%/*} table isp2
-  ip route add default via $ISP2_GW dev ${WAN_IF}.${VLAN_ISP2_ID} table isp2
-
-  # Reglas de política (para tráfico originado desde las IP WAN)
-  ip rule add from ${ISP1_IP%/*} table isp1
-  ip rule add from ${ISP2_IP%/*} table isp2
-
-  # Rutas LAN locales
-  ip route add $LAN1_NET dev $LAN1_NAME
-  ip route add $LAN2_NET dev $LAN2_NAME
-
-  # Ruta global por defecto (para tráfico general)
-  ip route add default via $ISP1_GW dev ${WAN_IF}.${VLAN_ISP1_ID}
-}
-
+# Function to clean up the configuration
 cleanup() {
-  echo "[+] Limpiando configuración..."
+  echo "[+] Cleaning up bridge configuration..."
+  
+  ip link set dev $BRIDGE_IF down
+  ip link del dev $BRIDGE_IF
 
-  # Borrar reglas NAT y políticas
-  iptables -t nat -F
-  iptables -F FORWARD
-  ip rule flush
-  ip route flush table isp1
-  ip route flush table isp2
-
-  # Eliminar VLANs
-  ip link del ${WAN_IF}.${VLAN_ISP1_ID} 2>/dev/null
-  ip link del ${WAN_IF}.${VLAN_ISP2_ID} 2>/dev/null
-  ip link del $LAN1_NAME 2>/dev/null
-  ip link del $LAN2_NAME 2>/dev/null
+  # Restore interfaces if needed (or just reboot)
+  echo "[+] Cleanup complete."
 }
 
-# ====== MENÚ ======
+# ====== MENU ======
 case "$1" in
   start)
-    create_vlans
-    enable_forwarding
-    setup_nat
-    setup_routes
+    setup_bridge
+    apply_rules
     ;;
   stop)
     cleanup
