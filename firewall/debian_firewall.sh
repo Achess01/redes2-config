@@ -1,131 +1,81 @@
 #!/bin/bash
+# ===========================================================
+# Configuración persistente de red - FIREWALL
+# VLANs hacia ISPs y VLANs hacia Load Balancer
+# ===========================================================
 
-WAN_IF="enp1s0"                 # interfaz física hacia Ubuntu (ISPs)
-LAN_IF="enx00e04c3603ba"        # interfaz física hacia balanceador
+cat <<'EOF' | sudo tee /etc/network/interfaces > /dev/null
+# ===========================================================
+# Archivo generado automáticamente - FIREWALL
+# ===========================================================
 
-# VLANs hacia Ubuntu (ISPs simulados)
-VLAN_ISP1_ID=70
-VLAN_ISP2_ID=80
-ISP1_NET="192.168.70.0/24"
-ISP2_NET="192.168.80.0/24"
-ISP1_IP="192.168.70.2/24"
-ISP2_IP="192.168.80.2/24"
-ISP1_GW="192.168.70.1"
-ISP2_GW="192.168.80.1"
+# Loopback
+auto lo
+iface lo inet loopback
 
-# VLANs hacia el balanceador (usaremos nombres cortos)
-VLAN_LAN1_ID=10
-VLAN_LAN2_ID=20
-LAN1_NET="10.10.10.0/24"
-LAN2_NET="10.10.20.0/24"
-LAN1_IP="10.10.10.1/24"
-LAN2_IP="10.10.20.1/24"
-LAN1_NAME="lan10"
-LAN2_NAME="lan20"
+# Interfaz hacia los ISPs (Ubuntu)
+auto enp1s0
+iface enp1s0 inet manual
 
-# ====== FUNCIONES ======
+# Interfaz hacia el Load Balancer
+auto enx00e04c3603ba
+iface enx00e04c3603ba inet manual
 
-create_vlans() {
-  echo "[+] Creando VLANs..."
+# ===============================
+# VLANs WAN hacia los ISPs
+# ===============================
 
-  # VLANs WAN (enp1s0 → Ubuntu)
-  ip link add link $WAN_IF name ${WAN_IF}.${VLAN_ISP1_ID} type vlan id $VLAN_ISP1_ID
-  ip link add link $WAN_IF name ${WAN_IF}.${VLAN_ISP2_ID} type vlan id $VLAN_ISP2_ID
+# VLAN 70 - ISP1
+auto enp1s0.70
+iface enp1s0.70 inet static
+    address 192.168.70.2
+    netmask 255.255.255.0
+    gateway 192.168.70.1
+    vlan-raw-device enp1s0
 
-  ip addr add $ISP1_IP dev ${WAN_IF}.${VLAN_ISP1_ID}
-  ip addr add $ISP2_IP dev ${WAN_IF}.${VLAN_ISP2_ID}
+# VLAN 80 - ISP2
+auto enp1s0.80
+iface enp1s0.80 inet static
+    address 192.168.80.2
+    netmask 255.255.255.0
+    gateway 192.168.80.1
+    vlan-raw-device enp1s0
 
-  ip link set ${WAN_IF}.${VLAN_ISP1_ID} up
-  ip link set ${WAN_IF}.${VLAN_ISP2_ID} up
+# ===============================
+# VLANs LAN hacia el Load Balancer
+# ===============================
 
-  # VLANs LAN (usando nombres cortos)
-  ip link add link $LAN_IF name $LAN1_NAME type vlan id $VLAN_LAN1_ID
-  ip link add link $LAN_IF name $LAN2_NAME type vlan id $VLAN_LAN2_ID
+# VLAN 10 - hacia Load Balancer (ISP1 interno)
+auto enx00e04c3603ba.10
+iface enx00e04c3603ba.10 inet static
+    address 10.10.10.1
+    netmask 255.255.255.0
+    vlan-raw-device enx00e04c3603ba
+    post-up ip rule add from 10.10.10.0/24 table isp1
+    post-up ip route add default via 192.168.70.1 dev enp1s0.70 table isp1
+    pre-down ip rule del from 10.10.10.0/24 table isp1
+    pre-down ip route flush table isp1
 
-  ip addr add $LAN1_IP dev $LAN1_NAME
-  ip addr add $LAN2_IP dev $LAN2_NAME
+# VLAN 20 - hacia Load Balancer (ISP2 interno)
+auto enx00e04c3603ba.20
+iface enx00e04c3603ba.20 inet static
+    address 10.10.20.1
+    netmask 255.255.255.0
+    vlan-raw-device enx00e04c3603ba
+    post-up ip rule add from 10.10.20.0/24 table isp2
+    post-up ip route add default via 192.168.80.1 dev enp1s0.80 table isp2
+    pre-down ip rule del from 10.10.20.0/24 table isp2
+    pre-down ip route flush table isp2
 
-  ip link set $LAN1_NAME up
-  ip link set $LAN2_NAME up
-}
+# Habilitar reenvío de paquetes IPv4
+post-up sysctl -w net.ipv4.ip_forward=1
 
-enable_forwarding() {
-  echo "[+] Habilitando reenvío de paquetes..."
-  sysctl -w net.ipv4.ip_forward=1
-}
+# Reglas NAT para salida a Internet
+post-up iptables -t nat -A POSTROUTING -s 10.10.10.0/24 -o enp1s0.70 -j MASQUERADE
+post-up iptables -t nat -A POSTROUTING -s 10.10.20.0/24 -o enp1s0.80 -j MASQUERADE
+pre-down iptables -t nat -D POSTROUTING -s 10.10.10.0/24 -o enp1s0.70 -j MASQUERADE
+pre-down iptables -t nat -D POSTROUTING -s 10.10.20.0/24 -o enp1s0.80 -j MASQUERADE
+EOF
 
-setup_nat() {
-  echo "[+] Configurando reglas NAT..."
-
-  # Limpiar reglas previas
-  iptables -t nat -F
-  iptables -F FORWARD
-
-  # Permitir reenvío
-  iptables -P FORWARD ACCEPT
-
-  # NAT: tráfico LAN → WAN
-  iptables -t nat -A POSTROUTING -s $LAN1_NET -o ${WAN_IF}.${VLAN_ISP1_ID} -j MASQUERADE
-  iptables -t nat -A POSTROUTING -s $LAN1_NET -o ${WAN_IF}.${VLAN_ISP2_ID} -j MASQUERADE
-  iptables -t nat -A POSTROUTING -s $LAN2_NET -o ${WAN_IF}.${VLAN_ISP1_ID} -j MASQUERADE
-  iptables -t nat -A POSTROUTING -s $LAN2_NET -o ${WAN_IF}.${VLAN_ISP2_ID} -j MASQUERADE
-}
-
-setup_routes() {
-  echo "[+] Configurando rutas y tablas..."
-
-  # Evitar duplicados en /etc/iproute2/rt_tables
-  grep -q "100 isp1" /etc/iproute2/rt_tables || echo "100 isp1" >> /etc/iproute2/rt_tables
-  grep -q "200 isp2" /etc/iproute2/rt_tables || echo "200 isp2" >> /etc/iproute2/rt_tables
-
-  # Rutas por tabla
-  ip route add $ISP1_NET dev ${WAN_IF}.${VLAN_ISP1_ID} src ${ISP1_IP%/*} table isp1
-  ip route add default via $ISP1_GW dev ${WAN_IF}.${VLAN_ISP1_ID} table isp1
-
-  ip route add $ISP2_NET dev ${WAN_IF}.${VLAN_ISP2_ID} src ${ISP2_IP%/*} table isp2
-  ip route add default via $ISP2_GW dev ${WAN_IF}.${VLAN_ISP2_ID} table isp2
-
-  # Reglas de política (para tráfico originado desde las IP WAN)
-  ip rule add from ${ISP1_IP%/*} table isp1
-  ip rule add from ${ISP2_IP%/*} table isp2
-
-  # Rutas LAN locales
-  ip route add $LAN1_NET dev $LAN1_NAME
-  ip route add $LAN2_NET dev $LAN2_NAME
-
-  # Ruta global por defecto (para tráfico general)
-  ip route add default via $ISP1_GW dev ${WAN_IF}.${VLAN_ISP1_ID}
-}
-
-cleanup() {
-  echo "[+] Limpiando configuración..."
-
-  # Borrar reglas NAT y políticas
-  iptables -t nat -F
-  iptables -F FORWARD
-  ip rule flush
-  ip route flush table isp1
-  ip route flush table isp2
-
-  # Eliminar VLANs
-  ip link del ${WAN_IF}.${VLAN_ISP1_ID} 2>/dev/null
-  ip link del ${WAN_IF}.${VLAN_ISP2_ID} 2>/dev/null
-  ip link del $LAN1_NAME 2>/dev/null
-  ip link del $LAN2_NAME 2>/dev/null
-}
-
-# ====== MENÚ ======
-case "$1" in
-  start)
-    create_vlans
-    enable_forwarding
-    setup_nat
-    setup_routes
-    ;;
-  stop)
-    cleanup
-    ;;
-  *)
-    echo "Uso: $0 {start|stop}"
-    ;;
-esac
+echo "[+] Configuración del FIREWALL escrita en /etc/network/interfaces"
+echo "[+] Reinicia el servicio de red con: sudo systemctl restart networking"
