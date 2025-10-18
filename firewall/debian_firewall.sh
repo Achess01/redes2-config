@@ -1,6 +1,6 @@
 #!/bin/bash
 
-WAN_IF="enp1s0"        # interfaz física hacia Ubuntu (ISPs)
+WAN_IF="enp1s0"                 # interfaz física hacia Ubuntu (ISPs)
 LAN_IF="enx00e04c3603ba"        # interfaz física hacia balanceador
 
 # VLANs hacia Ubuntu (ISPs simulados)
@@ -13,34 +13,40 @@ ISP2_IP="192.168.80.2/24"
 ISP1_GW="192.168.70.1"
 ISP2_GW="192.168.80.1"
 
-# VLANs hacia el balanceador
+# VLANs hacia el balanceador (usaremos nombres cortos)
 VLAN_LAN1_ID=10
 VLAN_LAN2_ID=20
 LAN1_NET="10.10.10.0/24"
 LAN2_NET="10.10.20.0/24"
 LAN1_IP="10.10.10.1/24"
 LAN2_IP="10.10.20.1/24"
+LAN1_NAME="lan10"
+LAN2_NAME="lan20"
 
 # ====== FUNCIONES ======
 
 create_vlans() {
   echo "[+] Creando VLANs..."
 
-  # VLANs WAN
+  # VLANs WAN (enp1s0 → Ubuntu)
   ip link add link $WAN_IF name ${WAN_IF}.${VLAN_ISP1_ID} type vlan id $VLAN_ISP1_ID
   ip link add link $WAN_IF name ${WAN_IF}.${VLAN_ISP2_ID} type vlan id $VLAN_ISP2_ID
+
   ip addr add $ISP1_IP dev ${WAN_IF}.${VLAN_ISP1_ID}
   ip addr add $ISP2_IP dev ${WAN_IF}.${VLAN_ISP2_ID}
+
   ip link set ${WAN_IF}.${VLAN_ISP1_ID} up
   ip link set ${WAN_IF}.${VLAN_ISP2_ID} up
 
-  # VLANs LAN
-  ip link add link $LAN_IF name ${LAN_IF}.${VLAN_LAN1_ID} type vlan id $VLAN_LAN1_ID
-  ip link add link $LAN_IF name ${LAN_IF}.${VLAN_LAN2_ID} type vlan id $VLAN_LAN2_ID
-  ip addr add $LAN1_IP dev ${LAN_IF}.${VLAN_LAN1_ID}
-  ip addr add $LAN2_IP dev ${LAN_IF}.${VLAN_LAN2_ID}
-  ip link set ${LAN_IF}.${VLAN_LAN1_ID} up
-  ip link set ${LAN_IF}.${VLAN_LAN2_ID} up
+  # VLANs LAN (usando nombres cortos)
+  ip link add link $LAN_IF name $LAN1_NAME type vlan id $VLAN_LAN1_ID
+  ip link add link $LAN_IF name $LAN2_NAME type vlan id $VLAN_LAN2_ID
+
+  ip addr add $LAN1_IP dev $LAN1_NAME
+  ip addr add $LAN2_IP dev $LAN2_NAME
+
+  ip link set $LAN1_NAME up
+  ip link set $LAN2_NAME up
 }
 
 enable_forwarding() {
@@ -68,9 +74,9 @@ setup_nat() {
 setup_routes() {
   echo "[+] Configurando rutas y tablas..."
 
-  # Tablas personalizadas
-  echo "100 isp1" >> /etc/iproute2/rt_tables
-  echo "200 isp2" >> /etc/iproute2/rt_tables
+  # Evitar duplicados en /etc/iproute2/rt_tables
+  grep -q "100 isp1" /etc/iproute2/rt_tables || echo "100 isp1" >> /etc/iproute2/rt_tables
+  grep -q "200 isp2" /etc/iproute2/rt_tables || echo "200 isp2" >> /etc/iproute2/rt_tables
 
   # Rutas por tabla
   ip route add $ISP1_NET dev ${WAN_IF}.${VLAN_ISP1_ID} src ${ISP1_IP%/*} table isp1
@@ -84,8 +90,8 @@ setup_routes() {
   ip rule add from ${ISP2_IP%/*} table isp2
 
   # Rutas LAN locales
-  ip route add $LAN1_NET dev ${LAN_IF}.${VLAN_LAN1_ID}
-  ip route add $LAN2_NET dev ${LAN_IF}.${VLAN_LAN2_ID}
+  ip route add $LAN1_NET dev $LAN1_NAME
+  ip route add $LAN2_NET dev $LAN2_NAME
 
   # Ruta global por defecto (para tráfico general)
   ip route add default via $ISP1_GW dev ${WAN_IF}.${VLAN_ISP1_ID}
@@ -104,8 +110,8 @@ cleanup() {
   # Eliminar VLANs
   ip link del ${WAN_IF}.${VLAN_ISP1_ID} 2>/dev/null
   ip link del ${WAN_IF}.${VLAN_ISP2_ID} 2>/dev/null
-  ip link del ${LAN_IF}.${VLAN_LAN1_ID} 2>/dev/null
-  ip link del ${LAN_IF}.${VLAN_LAN2_ID} 2>/dev/null
+  ip link del $LAN1_NAME 2>/dev/null
+  ip link del $LAN2_NAME 2>/dev/null
 }
 
 # ====== MENÚ ======
