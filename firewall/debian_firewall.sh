@@ -1,67 +1,120 @@
 #!/bin/bash
-# debian_firewall_static.sh
-# Configura las VLANs estáticas del firewall hacia los 2 ISPs simulados
 
-# /etc/iproute2/rt_tables
-# 100 isp1
-# 200 isp2
+WAN_IF="enp1s0"        # interfaz física hacia Ubuntu (ISPs)
+LAN_IF="enx00e04c3603ba"        # interfaz física hacia balanceador
 
+# VLANs hacia Ubuntu (ISPs simulados)
+VLAN_ISP1_ID=70
+VLAN_ISP2_ID=80
+ISP1_NET="192.168.70.0/24"
+ISP2_NET="192.168.80.0/24"
+ISP1_IP="192.168.70.2/24"
+ISP2_IP="192.168.80.2/24"
+ISP1_GW="192.168.70.1"
+ISP2_GW="192.168.80.1"
 
-### CONFIGURACIÓN ###
-IFACE="enp1s0"      # interfaz conectada al Ubuntu
-VLAN1_ID=70
-VLAN2_ID=80
-IP_ISP1="192.168.70.2/24"
-IP_ISP2="192.168.80.2/24"
-GW_ISP1="192.168.70.1"
-GW_ISP2="192.168.80.1"
+# VLANs hacia el balanceador
+VLAN_LAN1_ID=10
+VLAN_LAN2_ID=20
+LAN1_NET="10.10.10.0/24"
+LAN2_NET="10.10.20.0/24"
+LAN1_IP="10.10.10.1/24"
+LAN2_IP="10.10.20.1/24"
 
-### FUNCIONES ###
-setup_vlans() {
+# ====== FUNCIONES ======
+
+create_vlans() {
   echo "[+] Creando VLANs..."
-  ip link add link $IFACE name ${IFACE}.${VLAN1_ID} type vlan id $VLAN1_ID
-  ip link add link $IFACE name ${IFACE}.${VLAN2_ID} type vlan id $VLAN2_ID
 
-  ip addr add $IP_ISP1 dev ${IFACE}.${VLAN1_ID}
-  ip addr add $IP_ISP2 dev ${IFACE}.${VLAN2_ID}
+  # VLANs WAN
+  ip link add link $WAN_IF name ${WAN_IF}.${VLAN_ISP1_ID} type vlan id $VLAN_ISP1_ID
+  ip link add link $WAN_IF name ${WAN_IF}.${VLAN_ISP2_ID} type vlan id $VLAN_ISP2_ID
+  ip addr add $ISP1_IP dev ${WAN_IF}.${VLAN_ISP1_ID}
+  ip addr add $ISP2_IP dev ${WAN_IF}.${VLAN_ISP2_ID}
+  ip link set ${WAN_IF}.${VLAN_ISP1_ID} up
+  ip link set ${WAN_IF}.${VLAN_ISP2_ID} up
 
-  ip link set ${IFACE}.${VLAN1_ID} up
-  ip link set ${IFACE}.${VLAN2_ID} up
+  # VLANs LAN
+  ip link add link $LAN_IF name ${LAN_IF}.${VLAN_LAN1_ID} type vlan id $VLAN_LAN1_ID
+  ip link add link $LAN_IF name ${LAN_IF}.${VLAN_LAN2_ID} type vlan id $VLAN_LAN2_ID
+  ip addr add $LAN1_IP dev ${LAN_IF}.${VLAN_LAN1_ID}
+  ip addr add $LAN2_IP dev ${LAN_IF}.${VLAN_LAN2_ID}
+  ip link set ${LAN_IF}.${VLAN_LAN1_ID} up
+  ip link set ${LAN_IF}.${VLAN_LAN2_ID} up
 }
 
-add_route() {
-  echo "[+] Añadiendo rutas..."
-
-  sudo ip route add default via $GW_ISP1 dev ${IFACE}.${VLAN1_ID}
-  # Rutas base
-  sudo ip route add 192.168.70.0/24 dev ${IFACE}.${VLAN1_ID} src 192.168.70.2 table isp1
-  sudo ip route add default via 192.168.70.1 dev ${IFACE}.${VLAN1_ID} table isp1
-
-  sudo ip route add 192.168.80.0/24 dev ${IFACE}.${VLAN2_ID} src 192.168.80.2 table isp2
-  sudo ip route add default via 192.168.80.1 dev ${IFACE}.${VLAN2_ID} table isp2
-
-  sudo ip rule add from 192.168.70.2 table isp1
-  sudo ip rule add from 192.168.80.2 table isp2
+enable_forwarding() {
+  echo "[+] Habilitando reenvío de paquetes..."
+  sysctl -w net.ipv4.ip_forward=1
 }
 
-test_connectivity() {
-  echo "[+] Probando conectividad con gateways..."
-  ping -c 2 $GW_ISP1
-  ping -c 2 $GW_ISP2
+setup_nat() {
+  echo "[+] Configurando reglas NAT..."
+
+  # Limpiar reglas previas
+  iptables -t nat -F
+  iptables -F FORWARD
+
+  # Permitir reenvío
+  iptables -P FORWARD ACCEPT
+
+  # NAT: tráfico LAN → WAN
+  iptables -t nat -A POSTROUTING -s $LAN1_NET -o ${WAN_IF}.${VLAN_ISP1_ID} -j MASQUERADE
+  iptables -t nat -A POSTROUTING -s $LAN1_NET -o ${WAN_IF}.${VLAN_ISP2_ID} -j MASQUERADE
+  iptables -t nat -A POSTROUTING -s $LAN2_NET -o ${WAN_IF}.${VLAN_ISP1_ID} -j MASQUERADE
+  iptables -t nat -A POSTROUTING -s $LAN2_NET -o ${WAN_IF}.${VLAN_ISP2_ID} -j MASQUERADE
+}
+
+setup_routes() {
+  echo "[+] Configurando rutas y tablas..."
+
+  # Tablas personalizadas
+  echo "100 isp1" >> /etc/iproute2/rt_tables
+  echo "200 isp2" >> /etc/iproute2/rt_tables
+
+  # Rutas por tabla
+  ip route add $ISP1_NET dev ${WAN_IF}.${VLAN_ISP1_ID} src ${ISP1_IP%/*} table isp1
+  ip route add default via $ISP1_GW dev ${WAN_IF}.${VLAN_ISP1_ID} table isp1
+
+  ip route add $ISP2_NET dev ${WAN_IF}.${VLAN_ISP2_ID} src ${ISP2_IP%/*} table isp2
+  ip route add default via $ISP2_GW dev ${WAN_IF}.${VLAN_ISP2_ID} table isp2
+
+  # Reglas de política (para tráfico originado desde las IP WAN)
+  ip rule add from ${ISP1_IP%/*} table isp1
+  ip rule add from ${ISP2_IP%/*} table isp2
+
+  # Rutas LAN locales
+  ip route add $LAN1_NET dev ${LAN_IF}.${VLAN_LAN1_ID}
+  ip route add $LAN2_NET dev ${LAN_IF}.${VLAN_LAN2_ID}
+
+  # Ruta global por defecto (para tráfico general)
+  ip route add default via $ISP1_GW dev ${WAN_IF}.${VLAN_ISP1_ID}
 }
 
 cleanup() {
   echo "[+] Limpiando configuración..."
-  ip link del ${IFACE}.${VLAN1_ID} 2>/dev/null
-  ip link del ${IFACE}.${VLAN2_ID} 2>/dev/null
+
+  # Borrar reglas NAT y políticas
+  iptables -t nat -F
+  iptables -F FORWARD
+  ip rule flush
+  ip route flush table isp1
+  ip route flush table isp2
+
+  # Eliminar VLANs
+  ip link del ${WAN_IF}.${VLAN_ISP1_ID} 2>/dev/null
+  ip link del ${WAN_IF}.${VLAN_ISP2_ID} 2>/dev/null
+  ip link del ${LAN_IF}.${VLAN_LAN1_ID} 2>/dev/null
+  ip link del ${LAN_IF}.${VLAN_LAN2_ID} 2>/dev/null
 }
 
-### MENÚ ###
+# ====== MENÚ ======
 case "$1" in
   start)
-    setup_vlans
-    add_route
-    test_connectivity
+    create_vlans
+    enable_forwarding
+    setup_nat
+    setup_routes
     ;;
   stop)
     cleanup
