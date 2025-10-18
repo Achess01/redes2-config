@@ -26,34 +26,74 @@ setup_bridge() {
   ip link set dev $BRIDGE_IF up
 
   echo "[+] Enabling kernel settings for bridged traffic filtering..."
+
+  # Load the necessary module for bridge firewalling
+  echo "[+] Loading br_netfilter module..."
+  modprobe br_netfilter
+
   # This allows iptables to see traffic that flows across the bridge
   sysctl -w net.bridge.bridge-nf-call-iptables=1
   sysctl -w net.ipv4.ip_forward=1 # Still needed for filtering rules
 }
 
+# File containing ingress rules
+RULES_FILE="ingress.rules"
+
 # Function to apply firewall rules
 apply_rules() {
-  echo "[+] Applying firewall rules..."
+  echo "[+] Applying firewall rules from ${RULES_FILE}..."
 
-  # Flush existing rules
+  # Flush existing rules from the FORWARD chain
   iptables -F FORWARD
 
-  # Set default policy to DROP (secure default)
+  # Set the default policy to DROP. This is crucial for security.
+  # Any traffic not explicitly allowed by a rule will be blocked.
   iptables -P FORWARD DROP
 
-  # --- YOUR INGRESS/EGRESS RULES GO HERE ---
-  # Example: Allow all traffic to pass for now for testing
-  # In production, you would add specific rules per the project PDF [cite: 116]
+  # Allow established connections to return (important for TCP)
+  iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
+
+  # TODO: Remove this (for testing only)
   iptables -A FORWARD -i $WAN_IF -o $LAN_IF -j ACCEPT
   iptables -A FORWARD -i $LAN_IF -o $WAN_IF -j ACCEPT
-  
-  echo "[+] Rules applied. Firewall is active."
+
+  # Check if the rules file exists
+  if [ ! -f "$RULES_FILE" ]; then
+    echo "[!] Warning: Rules file '${RULES_FILE}' not found. All traffic will be blocked."
+    return
+  fi
+
+  # Read the rules file line by line, skipping comments
+  grep -v "^#" "$RULES_FILE" | while IFS=',' read -r origen destino puertos protocolo; do
+    # Clean up whitespace
+    origen=$(echo "$origen" | xargs)
+    destino=$(echo "$destino" | xargs)
+    puertos=$(echo "$puertos" | tr -d '[]' | xargs) # Remove brackets
+    protocolo=$(echo "$protocolo" | xargs)
+
+    if [ -z "$origen" ] || [ -z "$destino" ] || [ -z "$puertos" ] || [ -z "$protocolo" ]; then
+        echo "[-] Skipping invalid rule line."
+        continue
+    fi
+
+    echo "[+] Adding rule: From ${origen} To ${destino} Ports ${puertos} Proto ${protocolo}"
+
+    # Construct and execute the iptables command
+    iptables -A FORWARD -i $WAN_IF -o $LAN_IF \
+             -p "$protocolo" \
+             -s "$origen" \
+             -d "$destino" \
+             -m multiport --dports "$puertos" \
+             -j ACCEPT
+  done
+
+  echo "[+] All ingress rules applied. Firewall is active."
 }
 
 # Function to clean up the configuration
 cleanup() {
   echo "[+] Cleaning up bridge configuration..."
-  
+
   ip link set dev $BRIDGE_IF down
   ip link del dev $BRIDGE_IF
 
