@@ -27,30 +27,27 @@ setup_bridge() {
 
   echo "[+] Enabling kernel settings for bridged traffic filtering..."
 
-  # Load the necessary module for bridge firewalling
   echo "[+] Loading br_netfilter module..."
   modprobe br_netfilter
 
-  # This allows iptables to see traffic that flows across the bridge
+  # This allows iptables to see traffic
   sysctl -w net.bridge.bridge-nf-call-iptables=1
-  sysctl -w net.ipv4.ip_forward=1 # Still needed for filtering rules
+  sysctl -w net.ipv4.ip_forward=1
 }
 
 # File containing ingress rules
 RULES_FILE="ingress.rules"
 
-# Function to apply firewall rules
 apply_rules() {
   echo "[+] Applying firewall rules from ${RULES_FILE}..."
 
   # Flush existing rules from the FORWARD chain
   iptables -F FORWARD
 
-  # Set the default policy to DROP. This is crucial for security.
-  # Any traffic not explicitly allowed by a rule will be blocked.
+  # Set the default policy to DROP
   iptables -P FORWARD DROP
 
-  # Allow established connections to return (important for TCP)
+  # Allow established connections
   iptables -A FORWARD -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
 
   # TODO: Remove this (for testing only)
@@ -90,14 +87,14 @@ apply_rules() {
   echo "[+] All ingress rules applied. Firewall is active."
 }
 
-# Function to clean up the configuration
+# Function to clean
 cleanup() {
   echo "[+] Cleaning up bridge configuration..."
 
   ip link set dev $BRIDGE_IF down
   ip link del dev $BRIDGE_IF
 
-  # Restore interfaces if needed (or just reboot)
+  # Restore interfaces
   echo "[+] Cleanup complete."
 }
 

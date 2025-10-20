@@ -2,7 +2,6 @@
 # ubuntu_isp_static.sh
 # Simula dos ISP mediante VLANs con IPs estáticas y NAT hacia wlan0
 
-### CONFIGURACIÓN ###
 LAN_IF="eno1"      # interfaz cableada al firewall
 WAN_IF="wlo1"       # interfaz con Internet
 VLAN1_ID=70
