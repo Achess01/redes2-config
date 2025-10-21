@@ -1,0 +1,29 @@
+comandos xd
+Pegar en gui
+su -
+usermod -aG sudo "usuario"
+reboot
+sudo apt update
+sudo apt install spice-vdagent
+sudo reboot
+
+Comando para aplicar red:
+nano configurar_red.sh
+
+#!/bin/bash
+set -e
+#cambiar ip por cada maquina virtual
+cat <<EOF | sudo tee /etc/network/interfaces > /dev/null
+auto enp1s0
+iface enp1s0 inet static
+    address 192.168.40.10
+    netmask 255.255.255.0
+    gateway 192.168.40.1
+EOF
+
+echo "Reiniciando red..."
+sudo systemctl restart networking
+echo "VM en sub red D configurada con IP 192.168.40.10"
+
+chmod +x configurar_red.sh
+sudo ./configurar_red.sh
