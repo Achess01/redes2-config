@@ -1,5 +1,4 @@
 #!/bin/bash
-# Script principal para configurar el sistema (TC y LB) y realizar pruebas.
 
 echo "****************************************************************"
 echo "* INICIO DE CONFIGURACIÓN DEL BALANCEADOR DE CARGA Y QOS (TC) *"
@@ -106,16 +105,7 @@ echo "* FIN DE PRUEBAS.                             *"
 echo "****************************************************************"
 echo "Revisa los contadores de las reglas IPTABLES (4.4) después de generar tráfico (web y otro) para confirmar el balanceo."
 
-# # --- 5. EJECUCIÓN DEL SCRIPT FINAL ---
 # echo -e "\n--- 5. Ejecutando script de failover (check_failover.sh) ---"
 
 # # Ejecuta el script check_failover.sh.
-# # Usa 'bash' para asegurarte de que se ejecute con el intérprete Bash.
 bash check_failover.sh
-
-# # El script config.sh esperará a que check_failover.sh termine antes de salir.
-# # Puesto que check_failover.sh tiene un bucle 'while true', esto hará que config.sh se 'cuelgue' aquí.
-# # Si quieres que config.sh finalice, debes usar el método en segundo plano (&) que mencionamos antes,
-# # o modificar check_failover.sh para que se ejecute una sola vez.
-
-# echo -e "\n--- Ejecución de script finalizada ---"
