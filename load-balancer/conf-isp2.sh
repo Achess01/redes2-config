@@ -11,10 +11,10 @@ echo "* El ancho de banda total DOWN es de: ${BWOUT}Kbit *"
 echo "*********************************************"
 
 # --- VARIABLES ACTUALIZADAS (PARA wan80 Y 192.168.80.3) ---
-interfaceISP='wan80'; # Sub-interfaz VLAN 80 (ACTUALIZADO)
-INTERFACE_IN='wan80'; # Sub-interfaz VLAN 80 (entrada) (ACTUALIZADO)
+interfaceISP='wan80'; # Sub-interfaz VLAN 80 
+INTERFACE_IN='wan80'; # Sub-interfaz VLAN 80 (entrada)
 INTERFACE_OUT='ifb0'; # Interfaz virtual para el tráfico de bajada (download)
-IP='192.168.80.3'; # IP del balanceador para este ISP (ACTUALIZADO)
+IP='192.168.80.3'; # IP del balanceador para este ISP
 IN="/usr/sbin/tc  filter add dev $INTERFACE_IN parent 1:0 protocol ip prio 1 u32 match ip dst"
 OUT="/usr/sbin/tc  filter add dev $INTERFACE_OUT parent 1:0 protocol ip prio 1 u32 match ip src"
 
