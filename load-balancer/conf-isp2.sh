@@ -1,5 +1,4 @@
 #!/bin/bash
-# Script de Traffic Control (TC) para ISP2
 
 read -p "Ingrese el el maximo de ancho de banda (up) en Mbps: " BWU;
 read -p "Ingrese el el maximo de ancho de banda (down) en Mbps: " BWD;
