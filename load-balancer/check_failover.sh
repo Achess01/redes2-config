@@ -1,13 +1,11 @@
 #!/bin/bash
 # Script de Monitoreo Continuo para Failover
 
-# --- VARIABLES ESENCIALES COPIADAS DE conf-LB.sh ---
 interfaceISP1='wan70'
 interfaceISP2='wan80'
 GW_ISP1='192.168.70.1'
 GW_ISP2='192.168.80.1'
 
-# --- FUNCIÓN DE FAILOVER COPIADA DE conf-LB.sh ---
 check_failover() {
     ping -c 3 -W 2 $GW_ISP1 > /dev/null
     ISP1_STATUS=$? 
