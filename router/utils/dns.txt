@@ -1,0 +1,7 @@
+/etc/resolv.conf
+nameserver 8.8.8.8
+
+# Configurar DNS manualmente
+echo "nameserver 8.8.8.8" | sudo tee /etc/resolv.conf
+
+

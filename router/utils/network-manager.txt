@@ -1,0 +1,8 @@
+
+# NetworkManager
+sudo systemctl stop NetworkManager
+sudo systemctl disable NetworkManager
+
+# servicio de red clásico
+sudo systemctl enable networking
+sudo systemctl restart networking

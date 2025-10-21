@@ -1,0 +1,5 @@
+sudo iptables -L -v -n
+sudo iptables -t nat -L -v -n
+
+
+
