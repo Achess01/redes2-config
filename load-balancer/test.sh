@@ -1,5 +1,4 @@
 #!/bin/bash
-# Script de Test para Balanceo de Carga y PBR (test-LB.sh)
 
 # --- 1. CONFIGURACIÓN DE VARIABLES (Deben coincidir con conf-LB.sh) ---
 CLIENT_IFACE='enp2s0f0'
@@ -78,5 +77,4 @@ echo
 echo "--- 5. VERIFICACIÓN DE FAILOVER RÁPIDA ---"
 echo "Ruta por defecto actual:"
 ip route show default
-echo ""
 
