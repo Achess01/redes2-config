@@ -1,5 +1,4 @@
 #!/bin/bash
-# Script de Balanceo de Carga y Failover (ACTUALIZADO CON IP 192.168.60.3)
 
 # --- VARIABLES DE INTERFAZ Y RED (ACTUALIZADAS) ---
 interfaceCliente='enp2s0f0'  # INTERFAZ CLIENTE
