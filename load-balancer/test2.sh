@@ -1,5 +1,4 @@
 #!/bin/bash
-# Script de Test para Balanceo de Carga (Verificación de Reglas)
 
 # --- 1. CONFIGURACIÓN DE VARIABLES (Deben coincidir con conf-LB.sh) ---
 ISP1_IFACE='wan70'
@@ -57,13 +56,13 @@ echo "   RESULTADO ESPERADO (tcpdump): Tráfico de salida por la interfaz '$ISP2
 echo "------------------------------------------------------------------"
 
 # PRUEBA B: Regla por defecto HTTP/HTTPS
-echo "✅ PRUEBA B: Regla por Defecto (HTTPS 443/TCP de $CLIENT_IP_TEST2)"
+echo " PRUEBA B: Regla por Defecto (HTTPS 443/TCP de $CLIENT_IP_TEST2)"
 echo "   COMANDO (Cliente $CLIENT_IP_TEST2): curl -m 5 https://ejemplo.com"
 echo "   RESULTADO ESPERADO (tcpdump): Tráfico de salida por la interfaz '$ISP1_IFACE' (Regla por defecto: HTTP/S)."
 echo "------------------------------------------------------------------"
 
 # PRUEBA C: Regla por defecto Resto del tráfico (ISP2)
-echo "✅ PRUEBA C: Regla por Defecto (ICMP/Ping de $CLIENT_IP_TEST1)"
+echo " PRUEBA C: Regla por Defecto (ICMP/Ping de $CLIENT_IP_TEST1)"
 echo "   COMANDO (Cliente $CLIENT_IP_TEST1): ping -c 3 8.8.8.8"
 echo "   RESULTADO ESPERADO (tcpdump): Tráfico de salida por la interfaz '$ISP2_IFACE' (Regla por defecto: Resto del tráfico)."
 echo "------------------------------------------------------------------"
