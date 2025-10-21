@@ -3,7 +3,7 @@
 echo "Activando IP forwarding"
 
 # Agregar la configuración al archivo sysctl.conf
-echo "net.ipv4.ip_forward=1" >> /etc/sysctl.conf
+echo "net.ipv4.ip_forward=1" > /etc/sysctl.conf
 
 # Aplicar los cambios inmediatamente
 sysctl -p
