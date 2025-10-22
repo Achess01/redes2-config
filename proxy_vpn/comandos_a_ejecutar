@@ -1,0 +1,25 @@
+sudo sysctl -w net.ipv4.ip_forward=1
+sudo ip route del default
+sudo ip route add default via 192.168.60.3 dev enx00e04c360835
+sudo iptables -t nat -A POSTROUTING -o enx00e04c360835 -j MASQUERADE
+
+
+
+#HAMACHI 
+sudo hamachi list 
+
+ps aux | grep hamachi
+sudo pkill hamachid o sudo kill $(pidof hamachid) o ps aux | grep hamachi
+ luego
+ sudo /opt/logmein-hamachi/bin/hamachid &
+ps aux | grep hamachid
+sudo hamachi login
+
+
+
+
+
+
+
+COMANDO PARA ENRUTAR DE LA VLAN PARA ZABIX
+sudo ip route add 192.168.30.0/24 via 168.168.50.2
