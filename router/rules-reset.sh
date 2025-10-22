@@ -1,18 +1,31 @@
-# ACCEPT ALL
-sudo iptables -P INPUT ACCEPT
-sudo iptables -P FORWARD ACCEPT
-sudo iptables -P OUTPUT ACCEPT
+#!/bin/bash
+
+if [ "$EUID" -ne 0 ]; then
+  echo "Sin permiso SUDO"
+  exit 1
+fi
+
+IF_PROXY="enx00e04c3601b7"
+
+# PERMITIR todo
+iptables -P INPUT ACCEPT
+iptables -P FORWARD ACCEPT
+iptables -P OUTPUT ACCEPT
 
 # FLUSH RULES
-sudo iptables -F
+iptables -F
 
 # DELETE CUSTOM RULES (INTERNET_IP, INTERNET_MAC)
-sudo iptables -X
+iptables -X
 
-# DELETE REMAINNING RULES
-sudo iptables -t nat -F
-sudo iptables -t nat -X
-sudo iptables -t mangle -F
-sudo iptables -t mangle -X
+# Limpiar la tabla NAT
+iptables -t nat -F
+iptables -t nat -X
+# Limpiar la tabla Mangle
+iptables -t mangle -F
+iptables -t mangle -X
+
+# regla para que las VLANs salgan a internet
+iptables -t nat -A POSTROUTING -o $IF_PROXY -j MASQUERADE
 
 
